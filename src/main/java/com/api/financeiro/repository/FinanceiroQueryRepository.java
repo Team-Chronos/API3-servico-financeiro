@@ -1,7 +1,9 @@
 package com.api.financeiro.repository;
 
+import com.api.financeiro.dto.query.ProfissionalProjetoQueryDto;
 import com.api.financeiro.dto.query.ProjetoFinanceiroQueryDto;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -22,6 +24,16 @@ public class FinanceiroQueryRepository {
                     rs.getString("tipo_projeto"),
                     getBigDecimal(rs, "total_horas"),
                     getBigDecimal(rs, "custo_total")
+            );
+
+    private final RowMapper<ProfissionalProjetoQueryDto> profissionalProjetoRowMapper = (rs, rowNum) ->
+            new ProfissionalProjetoQueryDto(
+                    rs.getInt("usuario_id"),
+                    rs.getString("usuario_nome"),
+                    rs.getInt("projeto_id"),
+                    rs.getString("nome_projeto"),
+                    getBigDecimal(rs, "horas_trabalhadas"),
+                    getBigDecimal(rs, "valor_hora_projeto")
             );
 
     public FinanceiroQueryRepository(NamedParameterJdbcTemplate jdbcTemplate) {
@@ -60,6 +72,39 @@ public class FinanceiroQueryRepository {
                 """;
 
         return jdbcTemplate.query(sql, projetoFinanceiroRowMapper);
+    }
+
+    public List<ProfissionalProjetoQueryDto> listarProjetosDoProfissional(Integer usuarioId) {
+        String sql = """
+                SELECT
+                    u.id AS usuario_id,
+                    u.nome AS usuario_nome,
+                    p.id AS projeto_id,
+                    p.nome AS nome_projeto,
+                    CAST(
+                        COALESCE(SUM(
+                            CASE
+                                WHEN ta.data_inicio IS NOT NULL AND ta.data_fim IS NOT NULL
+                                THEN TIMESTAMPDIFF(SECOND, ta.data_inicio, ta.data_fim)
+                                ELSE 0
+                            END
+                        ) / 3600.0, 0) AS DECIMAL(10,2)
+                    ) AS horas_trabalhadas,
+                    CAST(COALESCE(p.valor_hora_base, 0) AS DECIMAL(10,2)) AS valor_hora_projeto
+                FROM usuario u
+                INNER JOIN tarefa t ON t.responsavel_id = u.id
+                INNER JOIN projeto p ON p.id = t.projeto_id
+                LEFT JOIN tarefa_atividade ta ON ta.tarefa_id = t.id
+                WHERE u.id = :usuarioId
+                  AND u.ativo = true
+                GROUP BY u.id, u.nome, p.id, p.nome, p.valor_hora_base
+                ORDER BY p.nome
+                """;
+
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        params.addValue("usuarioId", usuarioId);
+
+        return jdbcTemplate.query(sql, params, profissionalProjetoRowMapper);
     }
 
     private static BigDecimal getBigDecimal(ResultSet rs, String column) throws SQLException {

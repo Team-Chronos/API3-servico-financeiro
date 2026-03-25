@@ -1,9 +1,12 @@
 package com.api.financeiro.service;
 
+import com.api.financeiro.dto.query.ProfissionalProjetoQueryDto;
 import com.api.financeiro.dto.query.ProjetoFinanceiroQueryDto;
 import com.api.financeiro.dto.response.DashboardFinanceiroResponse;
 import com.api.financeiro.dto.response.ProfissionalGanhosResponse;
 import com.api.financeiro.dto.response.ProjetoFinanceiroResponse;
+import com.api.financeiro.dto.response.ProjetoProfissionalResponse;
+import com.api.financeiro.exception.RecursoNaoEncontradoException;
 import com.api.financeiro.repository.FinanceiroQueryRepository;
 import org.springframework.stereotype.Service;
 
@@ -30,7 +33,40 @@ public class FinanceiroServiceImpl implements FinanceiroService {
 
     @Override
     public ProfissionalGanhosResponse detalharGanhosProfissional(Integer usuarioId, BigDecimal bonus) {
-        throw new UnsupportedOperationException("Funcionalidade ainda não implementada");
+        BigDecimal bonusSeguro = normalizarBonus(bonus);
+
+        List<ProfissionalProjetoQueryDto> rows =
+                financeiroQueryRepository.listarProjetosDoProfissional(usuarioId);
+
+        if (rows.isEmpty()) {
+            throw new RecursoNaoEncontradoException(
+                    "Nenhum projeto encontrado para o usuário id=" + usuarioId
+            );
+        }
+
+        String usuarioNome = rows.get(0).usuarioNome();
+
+        List<ProjetoProfissionalResponse> projetos = rows.stream()
+                .map(this::toProjetoProfissionalResponse)
+                .toList();
+
+        BigDecimal totalSemBonus = projetos.stream()
+                .map(ProjetoProfissionalResponse::valorBaseCalculado)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        BigDecimal totalComBonus = totalSemBonus
+                .add(bonusSeguro)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        return new ProfissionalGanhosResponse(
+                usuarioId,
+                usuarioNome,
+                projetos,
+                totalSemBonus,
+                bonusSeguro,
+                totalComBonus
+        );
     }
 
     @Override
@@ -51,5 +87,26 @@ public class FinanceiroServiceImpl implements FinanceiroService {
                 dto.totalHoras().setScale(2, RoundingMode.HALF_UP),
                 dto.custoTotal().setScale(2, RoundingMode.HALF_UP)
         );
+    }
+
+    private ProjetoProfissionalResponse toProjetoProfissionalResponse(ProfissionalProjetoQueryDto dto) {
+        BigDecimal valorBaseCalculado = dto.valorHoraProjeto()
+                .multiply(dto.horasTrabalhadas())
+                .setScale(2, RoundingMode.HALF_UP);
+
+        return new ProjetoProfissionalResponse(
+                dto.projetoId(),
+                dto.nomeProjeto(),
+                dto.horasTrabalhadas().setScale(2, RoundingMode.HALF_UP),
+                dto.valorHoraProjeto().setScale(2, RoundingMode.HALF_UP),
+                valorBaseCalculado
+        );
+    }
+
+    private BigDecimal normalizarBonus(BigDecimal bonus) {
+        if (bonus == null || bonus.compareTo(BigDecimal.ZERO) < 0) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        return bonus.setScale(2, RoundingMode.HALF_UP);
     }
 }
