@@ -2,6 +2,7 @@ package com.api.financeiro.service;
 
 import com.api.financeiro.dto.query.ProfissionalProjetoQueryDto;
 import com.api.financeiro.dto.query.ProjetoFinanceiroQueryDto;
+import com.api.financeiro.dto.query.UsuarioAtivoDto;
 import com.api.financeiro.dto.response.DashboardFinanceiroResponse;
 import com.api.financeiro.dto.response.ProfissionalGanhosResponse;
 import com.api.financeiro.dto.response.ProjetoFinanceiroResponse;
@@ -71,7 +72,11 @@ public class FinanceiroServiceImpl implements FinanceiroService {
 
     @Override
     public List<ProfissionalGanhosResponse> listarTodosProfissionais() {
-        return List.of();
+        List<UsuarioAtivoDto> usuarios = financeiroQueryRepository.listarUsuariosAtivosComApontamento();
+
+        return usuarios.stream()
+                .map(usuario -> detalharGanhosProfissional(usuario.usuarioId(), BigDecimal.ZERO))
+                .toList();
     }
 
     @Override

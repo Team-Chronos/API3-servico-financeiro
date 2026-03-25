@@ -2,6 +2,7 @@ package com.api.financeiro.repository;
 
 import com.api.financeiro.dto.query.ProfissionalProjetoQueryDto;
 import com.api.financeiro.dto.query.ProjetoFinanceiroQueryDto;
+import com.api.financeiro.dto.query.UsuarioAtivoDto;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -105,6 +106,25 @@ public class FinanceiroQueryRepository {
         params.addValue("usuarioId", usuarioId);
 
         return jdbcTemplate.query(sql, params, profissionalProjetoRowMapper);
+    }
+
+    public List<UsuarioAtivoDto> listarUsuariosAtivosComApontamento() {
+        String sql = """
+                SELECT DISTINCT
+                    u.id AS usuario_id,
+                    u.nome AS usuario_nome
+                FROM usuario u
+                INNER JOIN tarefa t ON t.responsavel_id = u.id
+                WHERE u.ativo = true
+                ORDER BY u.nome
+                """;
+
+        return jdbcTemplate.query(sql, (rs, rowNum) ->
+                new UsuarioAtivoDto(
+                        rs.getInt("usuario_id"),
+                        rs.getString("usuario_nome")
+                )
+        );
     }
 
     private static BigDecimal getBigDecimal(ResultSet rs, String column) throws SQLException {

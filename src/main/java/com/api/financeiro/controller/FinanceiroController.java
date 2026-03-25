@@ -33,6 +33,11 @@ public class FinanceiroController {
         return ResponseEntity.ok(financeiroService.listarProjetosFinanceiro());
     }
 
+    @GetMapping("/profissionais")
+    public ResponseEntity<List<ProfissionalGanhosResponse>> listarTodosProfissionais() {
+        return ResponseEntity.ok(financeiroService.listarTodosProfissionais());
+    }
+
     @GetMapping("/profissionais/{usuarioId}")
     public ResponseEntity<ProfissionalGanhosResponse> detalharGanhosProfissional(
             @PathVariable Integer usuarioId,
