@@ -11,12 +11,14 @@ import com.api.financeiro.dto.response.ProjetoProfissionalResponse;
 import com.api.financeiro.exception.RecursoNaoEncontradoException;
 import com.api.financeiro.repository.FinanceiroQueryRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 
 @Service
+@Transactional(readOnly = true)
 public class FinanceiroServiceImpl implements FinanceiroService {
 
     private final FinanceiroQueryRepository financeiroQueryRepository;
@@ -37,13 +39,10 @@ public class FinanceiroServiceImpl implements FinanceiroService {
     public ProfissionalGanhosResponse detalharGanhosProfissional(Integer usuarioId, BigDecimal bonus) {
         BigDecimal bonusSeguro = normalizarBonus(bonus);
 
-        List<ProfissionalProjetoQueryDto> rows =
-                financeiroQueryRepository.listarProjetosDoProfissional(usuarioId);
+        List<ProfissionalProjetoQueryDto> rows = financeiroQueryRepository.listarProjetosDoProfissional(usuarioId);
 
         if (rows.isEmpty()) {
-            throw new RecursoNaoEncontradoException(
-                    "Nenhum projeto encontrado para o usuário id=" + usuarioId
-            );
+            throw new RecursoNaoEncontradoException("Nenhum apontamento encontrado para o usuário id=" + usuarioId);
         }
 
         String usuarioNome = rows.get(0).usuarioNome();
@@ -57,9 +56,7 @@ public class FinanceiroServiceImpl implements FinanceiroService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
 
-        BigDecimal totalComBonus = totalSemBonus
-                .add(bonusSeguro)
-                .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal totalComBonus = totalSemBonus.add(bonusSeguro).setScale(2, RoundingMode.HALF_UP);
 
         return new ProfissionalGanhosResponse(
                 usuarioId,
