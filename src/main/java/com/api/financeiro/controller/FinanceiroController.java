@@ -1,5 +1,6 @@
 package com.api.financeiro.controller;
 
+import com.api.financeiro.dto.response.DashboardFinanceiroResponse;
 import com.api.financeiro.dto.response.ProfissionalGanhosResponse;
 import com.api.financeiro.dto.response.ProjetoFinanceiroResponse;
 import com.api.financeiro.service.FinanceiroService;
@@ -44,5 +45,10 @@ public class FinanceiroController {
             @RequestParam(required = false, defaultValue = "0") BigDecimal bonus
     ) {
         return ResponseEntity.ok(financeiroService.detalharGanhosProfissional(usuarioId, bonus));
+    }
+
+    @GetMapping("/dashboard")
+    public ResponseEntity<DashboardFinanceiroResponse> obterDadosDashboard() {
+        return ResponseEntity.ok(financeiroService.obterDadosDashboard());
     }
 }

@@ -1,9 +1,11 @@
 package com.api.financeiro.repository;
 
+import com.api.financeiro.dto.query.DashboardFinanceiroQueryDto;
 import com.api.financeiro.dto.query.ProfissionalProjetoQueryDto;
 import com.api.financeiro.dto.query.ProjetoFinanceiroQueryDto;
 import com.api.financeiro.dto.query.UsuarioAtivoDto;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.namedparam.EmptySqlParameterSource;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -123,6 +125,83 @@ public class FinanceiroQueryRepository {
                 new UsuarioAtivoDto(
                         rs.getInt("usuario_id"),
                         rs.getString("usuario_nome")
+                )
+        );
+    }
+
+    public DashboardFinanceiroQueryDto obterDashboard() {
+        String sql = """
+                SELECT
+                    CAST(COALESCE((
+                        SELECT SUM(
+                            CASE
+                                WHEN ta.data_inicio IS NOT NULL AND ta.data_fim IS NOT NULL
+                                THEN TIMESTAMPDIFF(SECOND, ta.data_inicio, ta.data_fim)
+                                ELSE 0
+                            END
+                        ) / 3600.0
+                        FROM tarefa_atividade ta
+                    ), 0) AS DECIMAL(12,2)) AS total_horas,
+
+                    CAST(COALESCE((
+                        SELECT SUM(
+                            CASE
+                                WHEN ta.data_inicio IS NOT NULL AND ta.data_fim IS NOT NULL
+                                THEN (TIMESTAMPDIFF(SECOND, ta.data_inicio, ta.data_fim) / 3600.0) * COALESCE(p.valor_hora_base, 0)
+                                ELSE 0
+                            END
+                        )
+                        FROM tarefa t
+                        INNER JOIN projeto p ON p.id = t.projeto_id
+                        LEFT JOIN tarefa_atividade ta ON ta.tarefa_id = t.id
+                    ), 0) AS DECIMAL(12,2)) AS custo_total,
+
+                    (
+                        SELECT COUNT(DISTINCT p.id)
+                        FROM projeto p
+                        INNER JOIN tarefa t ON t.projeto_id = p.id
+                    ) AS total_projetos,
+
+                    (
+                        SELECT COUNT(t.id)
+                        FROM tarefa t
+                        WHERE t.status = 'concluida'
+                    ) AS tarefas_concluidas,
+
+                    (
+                        SELECT COUNT(DISTINCT p.id)
+                        FROM projeto p
+                        WHERE EXISTS (
+                            SELECT 1
+                            FROM tarefa t
+                            WHERE t.projeto_id = p.id
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM tarefa t2
+                            WHERE t2.projeto_id = p.id
+                              AND t2.status <> 'concluida'
+                        )
+                    ) AS projetos_concluidos,
+
+                    (
+                        SELECT COUNT(DISTINCT u.id)
+                        FROM usuario u
+                        INNER JOIN tarefa t ON t.responsavel_id = u.id
+                        WHERE u.ativo = true
+                    ) AS total_desenvolvedores
+                """;
+
+        return jdbcTemplate.queryForObject(
+                sql,
+                EmptySqlParameterSource.INSTANCE,
+                (rs, rowNum) -> new DashboardFinanceiroQueryDto(
+                        getBigDecimal(rs, "total_horas"),
+                        getBigDecimal(rs, "custo_total"),
+                        rs.getLong("total_projetos"),
+                        rs.getLong("tarefas_concluidas"),
+                        rs.getLong("projetos_concluidos"),
+                        rs.getLong("total_desenvolvedores")
                 )
         );
     }

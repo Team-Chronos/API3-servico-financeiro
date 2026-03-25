@@ -1,5 +1,6 @@
 package com.api.financeiro.service;
 
+import com.api.financeiro.dto.query.DashboardFinanceiroQueryDto;
 import com.api.financeiro.dto.query.ProfissionalProjetoQueryDto;
 import com.api.financeiro.dto.query.ProjetoFinanceiroQueryDto;
 import com.api.financeiro.dto.query.UsuarioAtivoDto;
@@ -81,7 +82,16 @@ public class FinanceiroServiceImpl implements FinanceiroService {
 
     @Override
     public DashboardFinanceiroResponse obterDadosDashboard() {
-        throw new UnsupportedOperationException("Funcionalidade ainda não implementada");
+        DashboardFinanceiroQueryDto dto = financeiroQueryRepository.obterDashboard();
+
+        return new DashboardFinanceiroResponse(
+                dto.totalHoras().setScale(2, RoundingMode.HALF_UP),
+                dto.custoTotal().setScale(2, RoundingMode.HALF_UP),
+                dto.totalProjetos(),
+                dto.tarefasConcluidas(),
+                dto.projetosConcluidos(),
+                dto.totalDesenvolvedores()
+        );
     }
 
     private ProjetoFinanceiroResponse toProjetoFinanceiroResponse(ProjetoFinanceiroQueryDto dto) {
