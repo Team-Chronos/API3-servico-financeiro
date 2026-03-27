@@ -2,6 +2,7 @@ package com.api.financeiro.controller;
 
 import com.api.financeiro.dto.response.DashboardFinanceiroResponse;
 import com.api.financeiro.dto.response.ProfissionalGanhosResponse;
+import com.api.financeiro.dto.response.ProjetoDetalheResponse;
 import com.api.financeiro.dto.response.ProjetoFinanceiroResponse;
 import com.api.financeiro.service.FinanceiroService;
 import org.springframework.http.ResponseEntity;
@@ -24,14 +25,14 @@ public class FinanceiroController {
         this.financeiroService = financeiroService;
     }
 
-    @GetMapping("/health")
-    public ResponseEntity<String> health() {
-        return ResponseEntity.ok("Financeiro API OK");
-    }
-
     @GetMapping("/projetos")
     public ResponseEntity<List<ProjetoFinanceiroResponse>> listarProjetosFinanceiro() {
         return ResponseEntity.ok(financeiroService.listarProjetosFinanceiro());
+    }
+
+    @GetMapping("/projetos/{projetoId}/detalhes")
+    public ResponseEntity<ProjetoDetalheResponse> detalharProjeto(@PathVariable Integer projetoId) {
+        return ResponseEntity.ok(financeiroService.detalharProjeto(projetoId));
     }
 
     @GetMapping("/profissionais")

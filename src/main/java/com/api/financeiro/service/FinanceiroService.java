@@ -2,6 +2,7 @@ package com.api.financeiro.service;
 
 import com.api.financeiro.dto.response.DashboardFinanceiroResponse;
 import com.api.financeiro.dto.response.ProfissionalGanhosResponse;
+import com.api.financeiro.dto.response.ProjetoDetalheResponse;
 import com.api.financeiro.dto.response.ProjetoFinanceiroResponse;
 
 import java.math.BigDecimal;
@@ -16,4 +17,6 @@ public interface FinanceiroService {
     List<ProfissionalGanhosResponse> listarTodosProfissionais();
 
     DashboardFinanceiroResponse obterDadosDashboard();
+
+    ProjetoDetalheResponse detalharProjeto(Integer projetoId);
 }

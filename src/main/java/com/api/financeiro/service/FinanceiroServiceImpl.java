@@ -2,10 +2,12 @@ package com.api.financeiro.service;
 
 import com.api.financeiro.dto.query.DashboardFinanceiroQueryDto;
 import com.api.financeiro.dto.query.ProfissionalProjetoQueryDto;
+import com.api.financeiro.dto.query.ProjetoProfissionalQueryDto;
 import com.api.financeiro.dto.query.ProjetoFinanceiroQueryDto;
 import com.api.financeiro.dto.query.UsuarioAtivoDto;
 import com.api.financeiro.dto.response.DashboardFinanceiroResponse;
 import com.api.financeiro.dto.response.ProfissionalGanhosResponse;
+import com.api.financeiro.dto.response.ProjetoDetalheResponse;
 import com.api.financeiro.dto.response.ProjetoFinanceiroResponse;
 import com.api.financeiro.dto.response.ProjetoProfissionalResponse;
 import com.api.financeiro.exception.RecursoNaoEncontradoException;
@@ -36,6 +38,45 @@ public class FinanceiroServiceImpl implements FinanceiroService {
     }
 
     @Override
+    public ProjetoDetalheResponse detalharProjeto(Integer projetoId) {
+        List<ProjetoProfissionalQueryDto> rows =
+                financeiroQueryRepository.listarProfissionaisDoProjeto(projetoId);
+
+        if (rows.isEmpty()) {
+            throw new RecursoNaoEncontradoException("Nenhum dado encontrado para o projeto id=" + projetoId);
+        }
+
+        ProjetoProfissionalQueryDto first = rows.get(0);
+
+        List<ProjetoProfissionalResponse> profissionais = rows.stream()
+                .map(this::toProjetoProfissionalDoProjetoResponse)
+                .toList();
+
+        BigDecimal totalHoras = profissionais.stream()
+                .map(ProjetoProfissionalResponse::horasTrabalhadas)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        BigDecimal custoTotal = profissionais.stream()
+                .map(ProjetoProfissionalResponse::valorBaseCalculado)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        BigDecimal valorHoraProjeto = first.valorHoraProjeto().setScale(2, RoundingMode.HALF_UP);
+
+        return new ProjetoDetalheResponse(
+                first.projetoId(),
+                first.nomeProjeto(),
+                first.tipoProjeto(),
+                totalHoras,
+                custoTotal,
+                valorHoraProjeto,
+                profissionais.size(),
+                profissionais
+        );
+    }
+
+    @Override
     public ProfissionalGanhosResponse detalharGanhosProfissional(Integer usuarioId, BigDecimal bonus) {
         BigDecimal bonusSeguro = normalizarBonus(bonus);
 
@@ -48,7 +89,7 @@ public class FinanceiroServiceImpl implements FinanceiroService {
         String usuarioNome = rows.get(0).usuarioNome();
 
         List<ProjetoProfissionalResponse> projetos = rows.stream()
-                .map(this::toProjetoProfissionalResponse)
+                .map(this::toProjetoProfissionalDoUsuarioResponse)
                 .toList();
 
         BigDecimal totalSemBonus = projetos.stream()
@@ -101,7 +142,7 @@ public class FinanceiroServiceImpl implements FinanceiroService {
         );
     }
 
-    private ProjetoProfissionalResponse toProjetoProfissionalResponse(ProfissionalProjetoQueryDto dto) {
+    private ProjetoProfissionalResponse toProjetoProfissionalDoUsuarioResponse(ProfissionalProjetoQueryDto dto) {
         BigDecimal valorBaseCalculado = dto.valorHoraProjeto()
                 .multiply(dto.horasTrabalhadas())
                 .setScale(2, RoundingMode.HALF_UP);
@@ -109,6 +150,20 @@ public class FinanceiroServiceImpl implements FinanceiroService {
         return new ProjetoProfissionalResponse(
                 dto.projetoId(),
                 dto.nomeProjeto(),
+                dto.horasTrabalhadas().setScale(2, RoundingMode.HALF_UP),
+                dto.valorHoraProjeto().setScale(2, RoundingMode.HALF_UP),
+                valorBaseCalculado
+        );
+    }
+
+    private ProjetoProfissionalResponse toProjetoProfissionalDoProjetoResponse(ProjetoProfissionalQueryDto dto) {
+        BigDecimal valorBaseCalculado = dto.valorHoraProjeto()
+                .multiply(dto.horasTrabalhadas())
+                .setScale(2, RoundingMode.HALF_UP);
+
+        return new ProjetoProfissionalResponse(
+                dto.usuarioId(),
+                dto.usuarioNome(),
                 dto.horasTrabalhadas().setScale(2, RoundingMode.HALF_UP),
                 dto.valorHoraProjeto().setScale(2, RoundingMode.HALF_UP),
                 valorBaseCalculado
