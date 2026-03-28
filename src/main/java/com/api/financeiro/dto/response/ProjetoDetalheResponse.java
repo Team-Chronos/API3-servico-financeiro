@@ -10,7 +10,7 @@ public record ProjetoDetalheResponse(
         BigDecimal totalHoras,
         BigDecimal custoTotal,
         BigDecimal valorHoraProjeto,
-        Integer totalDesenvolvedores,
-        List<ProjetoProfissionalResponse> desenvolvedores
+        Integer totalProfissionais,
+        List<ProjetoProfissionalResponse> profissionais
 ) {
 }
