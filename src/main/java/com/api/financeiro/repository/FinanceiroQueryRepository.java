@@ -2,8 +2,8 @@ package com.api.financeiro.repository;
 
 import com.api.financeiro.dto.query.DashboardFinanceiroQueryDto;
 import com.api.financeiro.dto.query.ProfissionalProjetoQueryDto;
-import com.api.financeiro.dto.query.ProjetoProfissionalQueryDto;
 import com.api.financeiro.dto.query.ProjetoFinanceiroQueryDto;
+import com.api.financeiro.dto.query.ProjetoProfissionalQueryDto;
 import com.api.financeiro.dto.query.UsuarioAtivoDto;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.EmptySqlParameterSource;
@@ -40,7 +40,7 @@ public class FinanceiroQueryRepository {
                     getBigDecimal(rs, "valor_hora_projeto")
             );
 
-    private final RowMapper<ProjetoProfissionalQueryDto> projetoDesenvolvedorRowMapper = (rs, rowNum) ->
+    private final RowMapper<ProjetoProfissionalQueryDto> projetoProfissionalRowMapper = (rs, rowNum) ->
             new ProjetoProfissionalQueryDto(
                     rs.getInt("projeto_id"),
                     rs.getString("nome_projeto"),
@@ -64,8 +64,8 @@ public class FinanceiroQueryRepository {
                     CAST(
                         COALESCE(SUM(
                             CASE
-                                WHEN ta.data_inicio IS NOT NULL AND ta.data_fim IS NOT NULL
-                                THEN TIMESTAMPDIFF(SECOND, ta.data_inicio, ta.data_fim)
+                                WHEN ch.data_inicio IS NOT NULL AND ch.data_fim IS NOT NULL
+                                THEN TIMESTAMPDIFF(SECOND, ch.data_inicio, ch.data_fim)
                                 ELSE 0
                             END
                         ) / 3600.0, 0) AS DECIMAL(10,2)
@@ -73,15 +73,15 @@ public class FinanceiroQueryRepository {
                     CAST(
                         COALESCE(SUM(
                             CASE
-                                WHEN ta.data_inicio IS NOT NULL AND ta.data_fim IS NOT NULL
-                                THEN (TIMESTAMPDIFF(SECOND, ta.data_inicio, ta.data_fim) / 3600.0) * COALESCE(p.valor_hora_base, 0)
+                                WHEN ch.data_inicio IS NOT NULL AND ch.data_fim IS NOT NULL
+                                THEN (TIMESTAMPDIFF(SECOND, ch.data_inicio, ch.data_fim) / 3600.0) * COALESCE(p.valor_hora_base, 0)
                                 ELSE 0
                             END
                         ), 0) AS DECIMAL(12,2)
                     ) AS custo_total
                 FROM projeto p
                 INNER JOIN tarefa t ON t.projeto_id = p.id
-                LEFT JOIN tarefa_atividade ta ON ta.tarefa_id = t.id
+                LEFT JOIN controle_horas ch ON ch.tarefa_id = t.id
                 GROUP BY p.id, p.nome, p.tipo_projeto
                 ORDER BY p.nome
                 """;
@@ -100,8 +100,8 @@ public class FinanceiroQueryRepository {
                     CAST(
                         COALESCE(SUM(
                             CASE
-                                WHEN ta.data_inicio IS NOT NULL AND ta.data_fim IS NOT NULL
-                                THEN TIMESTAMPDIFF(SECOND, ta.data_inicio, ta.data_fim)
+                                WHEN ch.data_inicio IS NOT NULL AND ch.data_fim IS NOT NULL
+                                THEN TIMESTAMPDIFF(SECOND, ch.data_inicio, ch.data_fim)
                                 ELSE 0
                             END
                         ) / 3600.0, 0) AS DECIMAL(10,2)
@@ -110,7 +110,7 @@ public class FinanceiroQueryRepository {
                 FROM projeto p
                 INNER JOIN tarefa t ON t.projeto_id = p.id
                 INNER JOIN usuario u ON u.id = t.responsavel_id
-                LEFT JOIN tarefa_atividade ta ON ta.tarefa_id = t.id
+                LEFT JOIN controle_horas ch ON ch.tarefa_id = t.id
                 WHERE p.id = :projetoId
                   AND u.ativo = true
                 GROUP BY p.id, p.nome, p.tipo_projeto, u.id, u.nome, p.valor_hora_base
@@ -120,7 +120,7 @@ public class FinanceiroQueryRepository {
         MapSqlParameterSource params = new MapSqlParameterSource();
         params.addValue("projetoId", projetoId);
 
-        return jdbcTemplate.query(sql, params, projetoDesenvolvedorRowMapper);
+        return jdbcTemplate.query(sql, params, projetoProfissionalRowMapper);
     }
 
     public List<ProfissionalProjetoQueryDto> listarProjetosDoProfissional(Integer usuarioId) {
@@ -133,8 +133,8 @@ public class FinanceiroQueryRepository {
                     CAST(
                         COALESCE(SUM(
                             CASE
-                                WHEN ta.data_inicio IS NOT NULL AND ta.data_fim IS NOT NULL
-                                THEN TIMESTAMPDIFF(SECOND, ta.data_inicio, ta.data_fim)
+                                WHEN ch.data_inicio IS NOT NULL AND ch.data_fim IS NOT NULL
+                                THEN TIMESTAMPDIFF(SECOND, ch.data_inicio, ch.data_fim)
                                 ELSE 0
                             END
                         ) / 3600.0, 0) AS DECIMAL(10,2)
@@ -143,7 +143,7 @@ public class FinanceiroQueryRepository {
                 FROM usuario u
                 INNER JOIN tarefa t ON t.responsavel_id = u.id
                 INNER JOIN projeto p ON p.id = t.projeto_id
-                LEFT JOIN tarefa_atividade ta ON ta.tarefa_id = t.id
+                LEFT JOIN controle_horas ch ON ch.tarefa_id = t.id
                 WHERE u.id = :usuarioId
                   AND u.ativo = true
                 GROUP BY u.id, u.nome, p.id, p.nome, p.valor_hora_base
@@ -181,25 +181,25 @@ public class FinanceiroQueryRepository {
                     CAST(COALESCE((
                         SELECT SUM(
                             CASE
-                                WHEN ta.data_inicio IS NOT NULL AND ta.data_fim IS NOT NULL
-                                THEN TIMESTAMPDIFF(SECOND, ta.data_inicio, ta.data_fim)
+                                WHEN ch.data_inicio IS NOT NULL AND ch.data_fim IS NOT NULL
+                                THEN TIMESTAMPDIFF(SECOND, ch.data_inicio, ch.data_fim)
                                 ELSE 0
                             END
                         ) / 3600.0
-                        FROM tarefa_atividade ta
+                        FROM controle_horas ch
                     ), 0) AS DECIMAL(12,2)) AS total_horas,
 
                     CAST(COALESCE((
                         SELECT SUM(
                             CASE
-                                WHEN ta.data_inicio IS NOT NULL AND ta.data_fim IS NOT NULL
-                                THEN (TIMESTAMPDIFF(SECOND, ta.data_inicio, ta.data_fim) / 3600.0) * COALESCE(p.valor_hora_base, 0)
+                                WHEN ch.data_inicio IS NOT NULL AND ch.data_fim IS NOT NULL
+                                THEN (TIMESTAMPDIFF(SECOND, ch.data_inicio, ch.data_fim) / 3600.0) * COALESCE(p.valor_hora_base, 0)
                                 ELSE 0
                             END
                         )
                         FROM tarefa t
                         INNER JOIN projeto p ON p.id = t.projeto_id
-                        LEFT JOIN tarefa_atividade ta ON ta.tarefa_id = t.id
+                        LEFT JOIN controle_horas ch ON ch.tarefa_id = t.id
                     ), 0) AS DECIMAL(12,2)) AS custo_total,
 
                     (
@@ -211,7 +211,7 @@ public class FinanceiroQueryRepository {
                     (
                         SELECT COUNT(t.id)
                         FROM tarefa t
-                        WHERE t.status = 'concluida'
+                        WHERE UPPER(t.status) = 'CONCLUIDA'
                     ) AS tarefas_concluidas,
 
                     (
@@ -226,7 +226,7 @@ public class FinanceiroQueryRepository {
                             SELECT 1
                             FROM tarefa t2
                             WHERE t2.projeto_id = p.id
-                              AND t2.status <> 'concluida'
+                              AND UPPER(COALESCE(t2.status, '')) <> 'CONCLUIDA'
                         )
                     ) AS projetos_concluidos,
 

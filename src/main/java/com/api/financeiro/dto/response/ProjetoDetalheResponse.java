@@ -11,6 +11,6 @@ public record ProjetoDetalheResponse(
         BigDecimal custoTotal,
         BigDecimal valorHoraProjeto,
         Integer totalProfissionais,
-        List<ProjetoProfissionalResponse> profissionais
+        List<ProfissionalProjetoResponse> profissionais
 ) {
 }

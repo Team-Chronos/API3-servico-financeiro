@@ -3,8 +3,8 @@ package com.api.financeiro.dto.response;
 import java.math.BigDecimal;
 
 public record ProjetoProfissionalResponse(
-        Integer usuarioId,
-        String usuarioNome,
+        Integer projetoId,
+        String nomeProjeto,
         BigDecimal horasTrabalhadas,
         BigDecimal valorHoraProjeto,
         BigDecimal valorBaseCalculado

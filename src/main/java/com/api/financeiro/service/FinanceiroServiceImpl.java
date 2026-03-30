@@ -2,11 +2,12 @@ package com.api.financeiro.service;
 
 import com.api.financeiro.dto.query.DashboardFinanceiroQueryDto;
 import com.api.financeiro.dto.query.ProfissionalProjetoQueryDto;
-import com.api.financeiro.dto.query.ProjetoProfissionalQueryDto;
 import com.api.financeiro.dto.query.ProjetoFinanceiroQueryDto;
+import com.api.financeiro.dto.query.ProjetoProfissionalQueryDto;
 import com.api.financeiro.dto.query.UsuarioAtivoDto;
 import com.api.financeiro.dto.response.DashboardFinanceiroResponse;
 import com.api.financeiro.dto.response.ProfissionalGanhosResponse;
+import com.api.financeiro.dto.response.ProfissionalProjetoResponse;
 import com.api.financeiro.dto.response.ProjetoDetalheResponse;
 import com.api.financeiro.dto.response.ProjetoFinanceiroResponse;
 import com.api.financeiro.dto.response.ProjetoProfissionalResponse;
@@ -48,17 +49,17 @@ public class FinanceiroServiceImpl implements FinanceiroService {
 
         ProjetoProfissionalQueryDto first = rows.get(0);
 
-        List<ProjetoProfissionalResponse> profissionais = rows.stream()
-                .map(this::toProjetoProfissionalDoProjetoResponse)
+        List<ProfissionalProjetoResponse> profissionais = rows.stream()
+                .map(this::toProfissionalProjetoResponse)
                 .toList();
 
         BigDecimal totalHoras = profissionais.stream()
-                .map(ProjetoProfissionalResponse::horasTrabalhadas)
+                .map(ProfissionalProjetoResponse::horasTrabalhadas)
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
 
         BigDecimal custoTotal = profissionais.stream()
-                .map(ProjetoProfissionalResponse::valorBaseCalculado)
+                .map(ProfissionalProjetoResponse::valorBaseCalculado)
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
 
@@ -80,7 +81,8 @@ public class FinanceiroServiceImpl implements FinanceiroService {
     public ProfissionalGanhosResponse detalharGanhosProfissional(Integer usuarioId, BigDecimal bonus) {
         BigDecimal bonusSeguro = normalizarBonus(bonus);
 
-        List<ProfissionalProjetoQueryDto> rows = financeiroQueryRepository.listarProjetosDoProfissional(usuarioId);
+        List<ProfissionalProjetoQueryDto> rows =
+                financeiroQueryRepository.listarProjetosDoProfissional(usuarioId);
 
         if (rows.isEmpty()) {
             throw new RecursoNaoEncontradoException("Nenhum apontamento encontrado para o usuário id=" + usuarioId);
@@ -89,7 +91,7 @@ public class FinanceiroServiceImpl implements FinanceiroService {
         String usuarioNome = rows.get(0).usuarioNome();
 
         List<ProjetoProfissionalResponse> projetos = rows.stream()
-                .map(this::toProjetoProfissionalDoUsuarioResponse)
+                .map(this::toProjetoProfissionalResponse)
                 .toList();
 
         BigDecimal totalSemBonus = projetos.stream()
@@ -97,7 +99,9 @@ public class FinanceiroServiceImpl implements FinanceiroService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
 
-        BigDecimal totalComBonus = totalSemBonus.add(bonusSeguro).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal totalComBonus = totalSemBonus
+                .add(bonusSeguro)
+                .setScale(2, RoundingMode.HALF_UP);
 
         return new ProfissionalGanhosResponse(
                 usuarioId,
@@ -142,7 +146,7 @@ public class FinanceiroServiceImpl implements FinanceiroService {
         );
     }
 
-    private ProjetoProfissionalResponse toProjetoProfissionalDoUsuarioResponse(ProfissionalProjetoQueryDto dto) {
+    private ProjetoProfissionalResponse toProjetoProfissionalResponse(ProfissionalProjetoQueryDto dto) {
         BigDecimal valorBaseCalculado = dto.valorHoraProjeto()
                 .multiply(dto.horasTrabalhadas())
                 .setScale(2, RoundingMode.HALF_UP);
@@ -156,12 +160,12 @@ public class FinanceiroServiceImpl implements FinanceiroService {
         );
     }
 
-    private ProjetoProfissionalResponse toProjetoProfissionalDoProjetoResponse(ProjetoProfissionalQueryDto dto) {
+    private ProfissionalProjetoResponse toProfissionalProjetoResponse(ProjetoProfissionalQueryDto dto) {
         BigDecimal valorBaseCalculado = dto.valorHoraProjeto()
                 .multiply(dto.horasTrabalhadas())
                 .setScale(2, RoundingMode.HALF_UP);
 
-        return new ProjetoProfissionalResponse(
+        return new ProfissionalProjetoResponse(
                 dto.usuarioId(),
                 dto.usuarioNome(),
                 dto.horasTrabalhadas().setScale(2, RoundingMode.HALF_UP),
@@ -174,6 +178,7 @@ public class FinanceiroServiceImpl implements FinanceiroService {
         if (bonus == null || bonus.compareTo(BigDecimal.ZERO) < 0) {
             return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         }
+
         return bonus.setScale(2, RoundingMode.HALF_UP);
     }
 }
