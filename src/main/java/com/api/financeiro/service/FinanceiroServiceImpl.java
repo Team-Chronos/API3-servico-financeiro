@@ -115,10 +115,46 @@ public class FinanceiroServiceImpl implements FinanceiroService {
 
     @Override
     public List<ProfissionalGanhosResponse> listarTodosProfissionais() {
-        List<UsuarioAtivoDto> usuarios = financeiroQueryRepository.listarUsuariosAtivosComApontamento();
+        List<ProfissionalProjetoQueryDto> rows = financeiroQueryRepository
+                .listarTodosProjetosDeProfissionaisAtivos();
 
-        return usuarios.stream()
-                .map(usuario -> detalharGanhosProfissional(usuario.usuarioId(), BigDecimal.ZERO))
+        if (rows.isEmpty()) {
+            return List.of();
+        }
+
+        var profissionaisPorId = new java.util.LinkedHashMap<Integer, java.util.List<ProfissionalProjetoQueryDto>>();
+        for (ProfissionalProjetoQueryDto row : rows) {
+            profissionaisPorId.computeIfAbsent(row.usuarioId(), k -> new java.util.ArrayList<>())
+                    .add(row);
+        }
+
+        return profissionaisPorId.entrySet().stream()
+                .map(entry -> {
+                    Integer usuarioId = entry.getKey();
+                    java.util.List<ProfissionalProjetoQueryDto> projetosDo = entry.getValue();
+                    String usuarioNome = projetosDo.get(0).usuarioNome();
+
+                    List<ProjetoProfissionalResponse> projetos = projetosDo.stream()
+                            .map(this::toProjetoProfissionalResponse)
+                            .toList();
+
+                    BigDecimal totalSemBonus = projetos.stream()
+                            .map(ProjetoProfissionalResponse::valorBaseCalculado)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add)
+                            .setScale(2, RoundingMode.HALF_UP);
+
+                    BigDecimal totalComBonus = totalSemBonus
+                            .setScale(2, RoundingMode.HALF_UP);
+
+                    return new ProfissionalGanhosResponse(
+                            usuarioId,
+                            usuarioNome,
+                            projetos,
+                            totalSemBonus,
+                            BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP),
+                            totalComBonus
+                    );
+                })
                 .toList();
     }
 
