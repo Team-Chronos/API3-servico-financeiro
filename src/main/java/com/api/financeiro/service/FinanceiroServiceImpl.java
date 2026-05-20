@@ -1,10 +1,11 @@
 package com.api.financeiro.service;
 
-import com.api.financeiro.dto.query.DashboardFinanceiroQueryDto;
-import com.api.financeiro.dto.query.ProfissionalProjetoQueryDto;
-import com.api.financeiro.dto.query.ProjetoFinanceiroQueryDto;
-import com.api.financeiro.dto.query.ProjetoProfissionalQueryDto;
-import com.api.financeiro.dto.query.UsuarioAtivoDto;
+import com.api.financeiro.client.GatewayClient;
+import com.api.financeiro.client.dto.DadosFinanceirosExternos;
+import com.api.financeiro.client.dto.ProfissionalExternoDto;
+import com.api.financeiro.client.dto.ProjetoExternoDto;
+import com.api.financeiro.client.dto.RegistroHoraExternoDto;
+import com.api.financeiro.client.dto.TarefaExternaDto;
 import com.api.financeiro.dto.response.DashboardFinanceiroResponse;
 import com.api.financeiro.dto.response.ProfissionalGanhosResponse;
 import com.api.financeiro.dto.response.ProfissionalProjetoResponse;
@@ -12,45 +13,84 @@ import com.api.financeiro.dto.response.ProjetoDetalheResponse;
 import com.api.financeiro.dto.response.ProjetoFinanceiroResponse;
 import com.api.financeiro.dto.response.ProjetoProfissionalResponse;
 import com.api.financeiro.exception.RecursoNaoEncontradoException;
-import com.api.financeiro.repository.FinanceiroQueryRepository;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
-@Transactional(readOnly = true)
 public class FinanceiroServiceImpl implements FinanceiroService {
 
-    private final FinanceiroQueryRepository financeiroQueryRepository;
+    private final GatewayClient gatewayClient;
 
-    public FinanceiroServiceImpl(FinanceiroQueryRepository financeiroQueryRepository) {
-        this.financeiroQueryRepository = financeiroQueryRepository;
+    public FinanceiroServiceImpl(GatewayClient gatewayClient) {
+        this.gatewayClient = gatewayClient;
     }
 
     @Override
-    public List<ProjetoFinanceiroResponse> listarProjetosFinanceiro() {
-        return financeiroQueryRepository.listarProjetosFinanceiro()
-                .stream()
-                .map(this::toProjetoFinanceiroResponse)
+    public List<ProjetoFinanceiroResponse> listarProjetosFinanceiro(String authorization) {
+        DadosFinanceiros dados = carregarDados(authorization);
+
+        return dados.projetos().stream()
+                .filter(projeto -> projeto.id() != null)
+                .map(projeto -> criarProjetoFinanceiroResponse(projeto, tarefasDoProjeto(dados.tarefas(), projeto.id()), dados.registrosPorTarefaId()))
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparing(ProjetoFinanceiroResponse::nomeProjeto, Comparator.nullsLast(String::compareToIgnoreCase)))
                 .toList();
     }
 
     @Override
-    public ProjetoDetalheResponse detalharProjeto(Integer projetoId) {
-        List<ProjetoProfissionalQueryDto> rows =
-                financeiroQueryRepository.listarProfissionaisDoProjeto(projetoId);
+    public ProjetoDetalheResponse detalharProjeto(Integer projetoId, String authorization) {
+        DadosFinanceiros dados = carregarDados(authorization);
+        ProjetoExternoDto projeto = dados.projetosPorId().get(projetoId);
 
-        if (rows.isEmpty()) {
+        if (projeto == null) {
+            throw new RecursoNaoEncontradoException("Projeto não encontrado id=" + projetoId);
+        }
+
+        List<TarefaExternaDto> tarefasProjeto = tarefasDoProjeto(dados.tarefas(), projetoId);
+
+        Map<Integer, List<TarefaExternaDto>> tarefasPorProfissional = tarefasProjeto.stream()
+                .filter(tarefa -> tarefa.responsavelId() != null)
+                .filter(tarefa -> profissionalAtivo(dados.profissionaisPorId().get(toInteger(tarefa.responsavelId()))))
+                .collect(Collectors.groupingBy(
+                        tarefa -> toInteger(tarefa.responsavelId()),
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
+
+        if (tarefasPorProfissional.isEmpty()) {
             throw new RecursoNaoEncontradoException("Nenhum dado encontrado para o projeto id=" + projetoId);
         }
 
-        ProjetoProfissionalQueryDto first = rows.get(0);
+        BigDecimal valorHoraProjeto = valorHoraProjeto(projeto);
 
-        List<ProfissionalProjetoResponse> profissionais = rows.stream()
-                .map(this::toProfissionalProjetoResponse)
+        List<ProfissionalProjetoResponse> profissionais = tarefasPorProfissional.entrySet().stream()
+                .map(entry -> {
+                    Integer usuarioId = entry.getKey();
+                    ProfissionalExternoDto profissional = dados.profissionaisPorId().get(usuarioId);
+                    BigDecimal horas = horasDasTarefas(entry.getValue(), dados.registrosPorTarefaId());
+                    BigDecimal valorBase = valorHoraProjeto.multiply(horas).setScale(2, RoundingMode.HALF_UP);
+
+                    return new ProfissionalProjetoResponse(
+                            usuarioId,
+                            nomeProfissional(profissional, usuarioId),
+                            horas,
+                            valorHoraProjeto,
+                            valorBase
+                    );
+                })
+                .sorted(Comparator.comparing(ProfissionalProjetoResponse::usuarioNome, Comparator.nullsLast(String::compareToIgnoreCase)))
                 .toList();
 
         BigDecimal totalHoras = profissionais.stream()
@@ -63,12 +103,10 @@ public class FinanceiroServiceImpl implements FinanceiroService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
 
-        BigDecimal valorHoraProjeto = first.valorHoraProjeto().setScale(2, RoundingMode.HALF_UP);
-
         return new ProjetoDetalheResponse(
-                first.projetoId(),
-                first.nomeProjeto(),
-                first.tipoProjeto(),
+                projeto.id(),
+                projeto.nome(),
+                stringSeguro(projeto.tipoProjeto()),
                 totalHoras,
                 custoTotal,
                 valorHoraProjeto,
@@ -78,34 +116,35 @@ public class FinanceiroServiceImpl implements FinanceiroService {
     }
 
     @Override
-    public ProfissionalGanhosResponse detalharGanhosProfissional(Integer usuarioId, BigDecimal bonus) {
-        BigDecimal bonusSeguro = normalizarBonus(bonus);
+    public ProfissionalGanhosResponse detalharGanhosProfissional(Integer usuarioId, BigDecimal bonus, String authorization) {
+        DadosFinanceiros dados = carregarDados(authorization);
+        ProfissionalExternoDto profissional = dados.profissionaisPorId().get(usuarioId);
 
-        List<ProfissionalProjetoQueryDto> rows =
-                financeiroQueryRepository.listarProjetosDoProfissional(usuarioId);
-
-        if (rows.isEmpty()) {
+        if (!profissionalAtivo(profissional)) {
             throw new RecursoNaoEncontradoException("Nenhum apontamento encontrado para o usuário id=" + usuarioId);
         }
 
-        String usuarioNome = rows.get(0).usuarioNome();
-
-        List<ProjetoProfissionalResponse> projetos = rows.stream()
-                .map(this::toProjetoProfissionalResponse)
+        List<TarefaExternaDto> tarefasProfissional = dados.tarefas().stream()
+                .filter(tarefa -> usuarioId.equals(toInteger(tarefa.responsavelId())))
                 .toList();
 
+        List<ProjetoProfissionalResponse> projetos = projetosDoProfissional(tarefasProfissional, dados);
+
+        if (projetos.isEmpty()) {
+            throw new RecursoNaoEncontradoException("Nenhum apontamento encontrado para o usuário id=" + usuarioId);
+        }
+
+        BigDecimal bonusSeguro = normalizarBonus(bonus);
         BigDecimal totalSemBonus = projetos.stream()
                 .map(ProjetoProfissionalResponse::valorBaseCalculado)
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
 
-        BigDecimal totalComBonus = totalSemBonus
-                .add(bonusSeguro)
-                .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal totalComBonus = totalSemBonus.add(bonusSeguro).setScale(2, RoundingMode.HALF_UP);
 
         return new ProfissionalGanhosResponse(
                 usuarioId,
-                usuarioNome,
+                nomeProfissional(profissional, usuarioId),
                 projetos,
                 totalSemBonus,
                 bonusSeguro,
@@ -114,100 +153,266 @@ public class FinanceiroServiceImpl implements FinanceiroService {
     }
 
     @Override
-    public List<ProfissionalGanhosResponse> listarTodosProfissionais() {
-        List<ProfissionalProjetoQueryDto> rows = financeiroQueryRepository
-                .listarTodosProjetosDeProfissionaisAtivos();
+    public List<ProfissionalGanhosResponse> listarTodosProfissionais(String authorization) {
+        DadosFinanceiros dados = carregarDados(authorization);
 
-        if (rows.isEmpty()) {
-            return List.of();
-        }
+        Map<Integer, List<TarefaExternaDto>> tarefasPorProfissional = dados.tarefas().stream()
+                .filter(tarefa -> tarefa.responsavelId() != null)
+                .filter(tarefa -> profissionalAtivo(dados.profissionaisPorId().get(toInteger(tarefa.responsavelId()))))
+                .collect(Collectors.groupingBy(
+                        tarefa -> toInteger(tarefa.responsavelId()),
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
 
-        var profissionaisPorId = new java.util.LinkedHashMap<Integer, java.util.List<ProfissionalProjetoQueryDto>>();
-        for (ProfissionalProjetoQueryDto row : rows) {
-            profissionaisPorId.computeIfAbsent(row.usuarioId(), k -> new java.util.ArrayList<>())
-                    .add(row);
-        }
-
-        return profissionaisPorId.entrySet().stream()
-                .map(entry -> {
-                    Integer usuarioId = entry.getKey();
-                    java.util.List<ProfissionalProjetoQueryDto> projetosDo = entry.getValue();
-                    String usuarioNome = projetosDo.get(0).usuarioNome();
-
-                    List<ProjetoProfissionalResponse> projetos = projetosDo.stream()
-                            .map(this::toProjetoProfissionalResponse)
-                            .toList();
-
-                    BigDecimal totalSemBonus = projetos.stream()
-                            .map(ProjetoProfissionalResponse::valorBaseCalculado)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add)
-                            .setScale(2, RoundingMode.HALF_UP);
-
-                    BigDecimal totalComBonus = totalSemBonus
-                            .setScale(2, RoundingMode.HALF_UP);
-
-                    return new ProfissionalGanhosResponse(
-                            usuarioId,
-                            usuarioNome,
-                            projetos,
-                            totalSemBonus,
-                            BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP),
-                            totalComBonus
-                    );
-                })
+        return tarefasPorProfissional.entrySet().stream()
+                .map(entry -> criarProfissionalGanhosResponse(entry.getKey(), entry.getValue(), dados))
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparing(ProfissionalGanhosResponse::usuarioNome, Comparator.nullsLast(String::compareToIgnoreCase)))
                 .toList();
     }
 
     @Override
-    public DashboardFinanceiroResponse obterDadosDashboard() {
-        DashboardFinanceiroQueryDto dto = financeiroQueryRepository.obterDashboard();
+    public DashboardFinanceiroResponse obterDadosDashboard(String authorization) {
+        DadosFinanceiros dados = carregarDados(authorization);
+
+        BigDecimal totalHoras = minutosParaHoras(
+                dados.registros().stream()
+                        .mapToLong(this::minutosDoRegistro)
+                        .sum()
+        );
+
+        BigDecimal custoTotal = dados.tarefas().stream()
+                .map(tarefa -> {
+                    ProjetoExternoDto projeto = dados.projetosPorId().get(toInteger(tarefa.projetoId()));
+                    if (projeto == null) {
+                        return BigDecimal.ZERO;
+                    }
+
+                    BigDecimal horas = horasDaTarefa(tarefa.id(), dados.registrosPorTarefaId());
+                    return horas.multiply(valorHoraProjeto(projeto));
+                })
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        Long totalProjetos = dados.tarefas().stream()
+                .map(TarefaExternaDto::projetoId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .count();
+
+        Long tarefasConcluidas = dados.tarefas().stream()
+                .filter(this::tarefaConcluida)
+                .count();
+
+        Map<Long, List<TarefaExternaDto>> tarefasPorProjeto = dados.tarefas().stream()
+                .filter(tarefa -> tarefa.projetoId() != null)
+                .collect(Collectors.groupingBy(TarefaExternaDto::projetoId));
+
+        Long projetosConcluidos = tarefasPorProjeto.values().stream()
+                .filter(lista -> !lista.isEmpty())
+                .filter(lista -> lista.stream().allMatch(this::tarefaConcluida))
+                .count();
+
+        Long totalDesenvolvedores = dados.tarefas().stream()
+                .map(TarefaExternaDto::responsavelId)
+                .filter(Objects::nonNull)
+                .map(this::toInteger)
+                .filter(id -> profissionalAtivo(dados.profissionaisPorId().get(id)))
+                .distinct()
+                .count();
 
         return new DashboardFinanceiroResponse(
-                dto.totalHoras().setScale(2, RoundingMode.HALF_UP),
-                dto.custoTotal().setScale(2, RoundingMode.HALF_UP),
-                dto.totalProjetos(),
-                dto.tarefasConcluidas(),
-                dto.projetosConcluidos(),
-                dto.totalDesenvolvedores()
+                totalHoras,
+                custoTotal,
+                totalProjetos,
+                tarefasConcluidas,
+                projetosConcluidos,
+                totalDesenvolvedores
         );
     }
 
-    private ProjetoFinanceiroResponse toProjetoFinanceiroResponse(ProjetoFinanceiroQueryDto dto) {
+    private ProjetoFinanceiroResponse criarProjetoFinanceiroResponse(
+            ProjetoExternoDto projeto,
+            List<TarefaExternaDto> tarefasProjeto,
+            Map<Long, List<RegistroHoraExternoDto>> registrosPorTarefaId
+    ) {
+        if (tarefasProjeto.isEmpty()) {
+            return null;
+        }
+
+        BigDecimal totalHoras = horasDasTarefas(tarefasProjeto, registrosPorTarefaId);
+        BigDecimal custoTotal = totalHoras.multiply(valorHoraProjeto(projeto)).setScale(2, RoundingMode.HALF_UP);
+
         return new ProjetoFinanceiroResponse(
-                dto.projetoId(),
-                dto.nomeProjeto(),
-                dto.tipoProjeto(),
-                dto.totalHoras().setScale(2, RoundingMode.HALF_UP),
-                dto.custoTotal().setScale(2, RoundingMode.HALF_UP)
+                projeto.id(),
+                projeto.nome(),
+                stringSeguro(projeto.tipoProjeto()),
+                totalHoras,
+                custoTotal
         );
     }
 
-    private ProjetoProfissionalResponse toProjetoProfissionalResponse(ProfissionalProjetoQueryDto dto) {
-        BigDecimal valorBaseCalculado = dto.valorHoraProjeto()
-                .multiply(dto.horasTrabalhadas())
+    private ProfissionalGanhosResponse criarProfissionalGanhosResponse(
+            Integer usuarioId,
+            List<TarefaExternaDto> tarefasProfissional,
+            DadosFinanceiros dados
+    ) {
+        ProfissionalExternoDto profissional = dados.profissionaisPorId().get(usuarioId);
+        List<ProjetoProfissionalResponse> projetos = projetosDoProfissional(tarefasProfissional, dados);
+
+        if (projetos.isEmpty()) {
+            return null;
+        }
+
+        BigDecimal totalSemBonus = projetos.stream()
+                .map(ProjetoProfissionalResponse::valorBaseCalculado)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
 
-        return new ProjetoProfissionalResponse(
-                dto.projetoId(),
-                dto.nomeProjeto(),
-                dto.horasTrabalhadas().setScale(2, RoundingMode.HALF_UP),
-                dto.valorHoraProjeto().setScale(2, RoundingMode.HALF_UP),
-                valorBaseCalculado
+        return new ProfissionalGanhosResponse(
+                usuarioId,
+                nomeProfissional(profissional, usuarioId),
+                projetos,
+                totalSemBonus,
+                BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP),
+                totalSemBonus
         );
     }
 
-    private ProfissionalProjetoResponse toProfissionalProjetoResponse(ProjetoProfissionalQueryDto dto) {
-        BigDecimal valorBaseCalculado = dto.valorHoraProjeto()
-                .multiply(dto.horasTrabalhadas())
-                .setScale(2, RoundingMode.HALF_UP);
+    private List<ProjetoProfissionalResponse> projetosDoProfissional(List<TarefaExternaDto> tarefasProfissional, DadosFinanceiros dados) {
+        Map<Integer, List<TarefaExternaDto>> tarefasPorProjeto = tarefasProfissional.stream()
+                .filter(tarefa -> tarefa.projetoId() != null)
+                .filter(tarefa -> dados.projetosPorId().containsKey(toInteger(tarefa.projetoId())))
+                .collect(Collectors.groupingBy(
+                        tarefa -> toInteger(tarefa.projetoId()),
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
 
-        return new ProfissionalProjetoResponse(
-                dto.usuarioId(),
-                dto.usuarioNome(),
-                dto.horasTrabalhadas().setScale(2, RoundingMode.HALF_UP),
-                dto.valorHoraProjeto().setScale(2, RoundingMode.HALF_UP),
-                valorBaseCalculado
+        return tarefasPorProjeto.entrySet().stream()
+                .map(entry -> {
+                    ProjetoExternoDto projeto = dados.projetosPorId().get(entry.getKey());
+                    BigDecimal horas = horasDasTarefas(entry.getValue(), dados.registrosPorTarefaId());
+                    BigDecimal valorHoraProjeto = valorHoraProjeto(projeto);
+                    BigDecimal valorBase = horas.multiply(valorHoraProjeto).setScale(2, RoundingMode.HALF_UP);
+
+                    return new ProjetoProfissionalResponse(
+                            projeto.id(),
+                            projeto.nome(),
+                            horas,
+                            valorHoraProjeto,
+                            valorBase
+                    );
+                })
+                .sorted(Comparator.comparing(ProjetoProfissionalResponse::nomeProjeto, Comparator.nullsLast(String::compareToIgnoreCase)))
+                .toList();
+    }
+
+    private DadosFinanceiros carregarDados(String authorization) {
+        DadosFinanceirosExternos dadosExternos = gatewayClient.buscarDadosFinanceiros(authorization);
+
+        List<ProjetoExternoDto> projetos = listaSegura(dadosExternos.projetos());
+        List<TarefaExternaDto> tarefas = listaSegura(dadosExternos.tarefas());
+        List<RegistroHoraExternoDto> registros = listaSegura(dadosExternos.registros());
+        List<ProfissionalExternoDto> profissionais = listaSegura(dadosExternos.profissionais());
+
+        Map<Integer, ProjetoExternoDto> projetosPorId = projetos.stream()
+                .filter(projeto -> projeto.id() != null)
+                .collect(Collectors.toMap(
+                        ProjetoExternoDto::id,
+                        Function.identity(),
+                        (primeiro, segundo) -> primeiro,
+                        LinkedHashMap::new
+                ));
+
+        Map<Integer, ProfissionalExternoDto> profissionaisPorId = profissionais.stream()
+                .filter(profissional -> profissional.id() != null)
+                .collect(Collectors.toMap(
+                        ProfissionalExternoDto::id,
+                        Function.identity(),
+                        (primeiro, segundo) -> primeiro,
+                        LinkedHashMap::new
+                ));
+
+        Map<Long, List<RegistroHoraExternoDto>> registrosPorTarefaId = registros.stream()
+                .filter(registro -> registro.tarefaId() != null)
+                .collect(Collectors.groupingBy(
+                        RegistroHoraExternoDto::tarefaId,
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
+
+        return new DadosFinanceiros(
+                projetos,
+                tarefas,
+                registros,
+                profissionais,
+                projetosPorId,
+                profissionaisPorId,
+                registrosPorTarefaId
         );
+    }
+
+    private List<TarefaExternaDto> tarefasDoProjeto(List<TarefaExternaDto> tarefas, Integer projetoId) {
+        return tarefas.stream()
+                .filter(tarefa -> projetoId.equals(toInteger(tarefa.projetoId())))
+                .toList();
+    }
+
+    private BigDecimal horasDasTarefas(List<TarefaExternaDto> tarefas, Map<Long, List<RegistroHoraExternoDto>> registrosPorTarefaId) {
+        long totalMinutos = tarefas.stream()
+                .map(TarefaExternaDto::id)
+                .filter(Objects::nonNull)
+                .map(registrosPorTarefaId::get)
+                .filter(Objects::nonNull)
+                .flatMap(List::stream)
+                .mapToLong(this::minutosDoRegistro)
+                .sum();
+
+        return minutosParaHoras(totalMinutos);
+    }
+
+    private BigDecimal horasDaTarefa(Long tarefaId, Map<Long, List<RegistroHoraExternoDto>> registrosPorTarefaId) {
+        if (tarefaId == null) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+
+        long totalMinutos = registrosPorTarefaId.getOrDefault(tarefaId, List.of())
+                .stream()
+                .mapToLong(this::minutosDoRegistro)
+                .sum();
+
+        return minutosParaHoras(totalMinutos);
+    }
+
+    private long minutosDoRegistro(RegistroHoraExternoDto registro) {
+        if (registro == null) {
+            return 0L;
+        }
+
+        if (registro.tempoMinutos() != null) {
+            return Math.max(registro.tempoMinutos(), 0L);
+        }
+
+        if (registro.dataInicio() == null || registro.dataFim() == null || registro.dataFim().isBefore(registro.dataInicio())) {
+            return 0L;
+        }
+
+        return Math.max(Duration.between(registro.dataInicio(), registro.dataFim()).toMinutes(), 0L);
+    }
+
+    private BigDecimal minutosParaHoras(long minutos) {
+        return BigDecimal.valueOf(minutos)
+                .divide(BigDecimal.valueOf(60), 2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal valorHoraProjeto(ProjetoExternoDto projeto) {
+        if (projeto == null || projeto.valorHoraBase() == null) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+
+        return projeto.valorHoraBase().setScale(2, RoundingMode.HALF_UP);
     }
 
     private BigDecimal normalizarBonus(BigDecimal bonus) {
@@ -216,5 +421,54 @@ public class FinanceiroServiceImpl implements FinanceiroService {
         }
 
         return bonus.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private boolean profissionalAtivo(ProfissionalExternoDto profissional) {
+        return profissional != null && Boolean.TRUE.equals(profissional.ativo());
+    }
+
+    private String nomeProfissional(ProfissionalExternoDto profissional, Integer usuarioId) {
+        if (profissional != null && profissional.nome() != null && !profissional.nome().isBlank()) {
+            return profissional.nome();
+        }
+
+        return "Usuário " + usuarioId;
+    }
+
+    private boolean tarefaConcluida(TarefaExternaDto tarefa) {
+        String status = tarefa == null ? null : tarefa.status();
+        if (status == null) {
+            return false;
+        }
+
+        String normalizado = status.trim().toUpperCase();
+        return normalizado.equals("CONCLUIDA") || normalizado.equals("CONCLUIDO");
+    }
+
+    private Integer toInteger(Long valor) {
+        if (valor == null) {
+            return null;
+        }
+
+        return Math.toIntExact(valor);
+    }
+
+    private String stringSeguro(String valor) {
+        return valor == null ? "" : valor;
+    }
+
+    private <T> List<T> listaSegura(List<T> lista) {
+        return lista == null ? List.of() : new ArrayList<>(lista);
+    }
+
+    private record DadosFinanceiros(
+            List<ProjetoExternoDto> projetos,
+            List<TarefaExternaDto> tarefas,
+            List<RegistroHoraExternoDto> registros,
+            List<ProfissionalExternoDto> profissionais,
+            Map<Integer, ProjetoExternoDto> projetosPorId,
+            Map<Integer, ProfissionalExternoDto> profissionaisPorId,
+            Map<Long, List<RegistroHoraExternoDto>> registrosPorTarefaId
+    ) {
     }
 }

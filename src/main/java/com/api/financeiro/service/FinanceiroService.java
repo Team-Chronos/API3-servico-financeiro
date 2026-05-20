@@ -10,13 +10,13 @@ import java.util.List;
 
 public interface FinanceiroService {
 
-    List<ProjetoFinanceiroResponse> listarProjetosFinanceiro();
+    List<ProjetoFinanceiroResponse> listarProjetosFinanceiro(String authorization);
 
-    ProfissionalGanhosResponse detalharGanhosProfissional(Integer usuarioId, BigDecimal bonus);
+    ProfissionalGanhosResponse detalharGanhosProfissional(Integer usuarioId, BigDecimal bonus, String authorization);
 
-    List<ProfissionalGanhosResponse> listarTodosProfissionais();
+    List<ProfissionalGanhosResponse> listarTodosProfissionais(String authorization);
 
-    DashboardFinanceiroResponse obterDadosDashboard();
+    DashboardFinanceiroResponse obterDadosDashboard(String authorization);
 
-    ProjetoDetalheResponse detalharProjeto(Integer projetoId);
+    ProjetoDetalheResponse detalharProjeto(Integer projetoId, String authorization);
 }
