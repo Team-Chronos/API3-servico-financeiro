@@ -18,13 +18,15 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -38,8 +40,9 @@ public class FinanceiroServiceImpl implements FinanceiroService {
     }
 
     @Override
-    public List<ProjetoFinanceiroResponse> listarProjetosFinanceiro(String authorization) {
-        DadosFinanceiros dados = carregarDados(authorization);
+    public List<ProjetoFinanceiroResponse> listarProjetosFinanceiro(String authorization, Integer ano, Integer mes) {
+        PeriodoMensal periodo = resolverPeriodoMensal(ano, mes);
+        DadosFinanceiros dados = carregarDados(authorization, periodo);
 
         return dados.projetos().stream()
                 .filter(projeto -> projeto.id() != null)
@@ -50,8 +53,9 @@ public class FinanceiroServiceImpl implements FinanceiroService {
     }
 
     @Override
-    public ProjetoDetalheResponse detalharProjeto(Integer projetoId, String authorization) {
-        DadosFinanceiros dados = carregarDados(authorization);
+    public ProjetoDetalheResponse detalharProjeto(Integer projetoId, String authorization, Integer ano, Integer mes) {
+        PeriodoMensal periodo = resolverPeriodoMensal(ano, mes);
+        DadosFinanceiros dados = carregarDados(authorization, periodo);
         ProjetoExternoDto projeto = dados.projetosPorId().get(projetoId);
 
         if (projeto == null) {
@@ -70,7 +74,7 @@ public class FinanceiroServiceImpl implements FinanceiroService {
                 ));
 
         if (tarefasPorProfissional.isEmpty()) {
-            throw new RecursoNaoEncontradoException("Nenhum dado encontrado para o projeto id=" + projetoId);
+            throw new RecursoNaoEncontradoException("Nenhum dado encontrado para o projeto id=" + projetoId + " no mês selecionado");
         }
 
         BigDecimal valorHoraProjeto = valorHoraProjeto(projeto);
@@ -116,8 +120,9 @@ public class FinanceiroServiceImpl implements FinanceiroService {
     }
 
     @Override
-    public ProfissionalGanhosResponse detalharGanhosProfissional(Integer usuarioId, BigDecimal bonus, String authorization) {
-        DadosFinanceiros dados = carregarDados(authorization);
+    public ProfissionalGanhosResponse detalharGanhosProfissional(Integer usuarioId, BigDecimal bonus, String authorization, Integer ano, Integer mes) {
+        PeriodoMensal periodo = resolverPeriodoMensal(ano, mes);
+        DadosFinanceiros dados = carregarDados(authorization, periodo);
         ProfissionalExternoDto profissional = dados.profissionaisPorId().get(usuarioId);
 
         if (!profissionalAtivo(profissional)) {
@@ -131,7 +136,7 @@ public class FinanceiroServiceImpl implements FinanceiroService {
         List<ProjetoProfissionalResponse> projetos = projetosDoProfissional(tarefasProfissional, dados);
 
         if (projetos.isEmpty()) {
-            throw new RecursoNaoEncontradoException("Nenhum apontamento encontrado para o usuário id=" + usuarioId);
+            throw new RecursoNaoEncontradoException("Nenhum apontamento encontrado para o usuário id=" + usuarioId + " no mês selecionado");
         }
 
         BigDecimal bonusSeguro = normalizarBonus(bonus);
@@ -153,8 +158,9 @@ public class FinanceiroServiceImpl implements FinanceiroService {
     }
 
     @Override
-    public List<ProfissionalGanhosResponse> listarTodosProfissionais(String authorization) {
-        DadosFinanceiros dados = carregarDados(authorization);
+    public List<ProfissionalGanhosResponse> listarTodosProfissionais(String authorization, Integer ano, Integer mes) {
+        PeriodoMensal periodo = resolverPeriodoMensal(ano, mes);
+        DadosFinanceiros dados = carregarDados(authorization, periodo);
 
         Map<Integer, List<TarefaExternaDto>> tarefasPorProfissional = dados.tarefas().stream()
                 .filter(tarefa -> tarefa.responsavelId() != null)
@@ -173,8 +179,9 @@ public class FinanceiroServiceImpl implements FinanceiroService {
     }
 
     @Override
-    public DashboardFinanceiroResponse obterDadosDashboard(String authorization) {
-        DadosFinanceiros dados = carregarDados(authorization);
+    public DashboardFinanceiroResponse obterDadosDashboard(String authorization, Integer ano, Integer mes) {
+        PeriodoMensal periodo = resolverPeriodoMensal(ano, mes);
+        DadosFinanceiros dados = carregarDados(authorization, periodo);
 
         BigDecimal totalHoras = minutosParaHoras(
                 dados.registros().stream()
@@ -309,13 +316,16 @@ public class FinanceiroServiceImpl implements FinanceiroService {
                 .toList();
     }
 
-    private DadosFinanceiros carregarDados(String authorization) {
+    private DadosFinanceiros carregarDados(String authorization, PeriodoMensal periodo) {
         DadosFinanceirosExternos dadosExternos = gatewayClient.buscarDadosFinanceiros(authorization);
 
         List<ProjetoExternoDto> projetos = listaSegura(dadosExternos.projetos());
         List<TarefaExternaDto> tarefas = listaSegura(dadosExternos.tarefas());
-        List<RegistroHoraExternoDto> registros = listaSegura(dadosExternos.registros());
         List<ProfissionalExternoDto> profissionais = listaSegura(dadosExternos.profissionais());
+
+        List<RegistroHoraExternoDto> registros = listaSegura(dadosExternos.registros()).stream()
+                .filter(registro -> registroNoPeriodo(registro, periodo))
+                .toList();
 
         Map<Integer, ProjetoExternoDto> projetosPorId = projetos.stream()
                 .filter(projeto -> projeto.id() != null)
@@ -352,6 +362,30 @@ public class FinanceiroServiceImpl implements FinanceiroService {
                 profissionaisPorId,
                 registrosPorTarefaId
         );
+    }
+
+    private boolean registroNoPeriodo(RegistroHoraExternoDto registro, PeriodoMensal periodo) {
+        if (registro == null || registro.dataInicio() == null) {
+            return false;
+        }
+
+        return !registro.dataInicio().isBefore(periodo.inicio()) && registro.dataInicio().isBefore(periodo.fim());
+    }
+
+    private PeriodoMensal resolverPeriodoMensal(Integer ano, Integer mes) {
+        YearMonth atual = YearMonth.now(ZoneId.systemDefault());
+        YearMonth competencia = (ano == null || mes == null)
+                ? atual
+                : YearMonth.of(ano, mes);
+
+        if (competencia.isAfter(atual)) {
+            throw new IllegalArgumentException("Não é permitido consultar mês futuro.");
+        }
+
+        Instant inicio = competencia.atDay(1).atStartOfDay(ZoneId.systemDefault()).toInstant();
+        Instant fim = competencia.plusMonths(1).atDay(1).atStartOfDay(ZoneId.systemDefault()).toInstant();
+
+        return new PeriodoMensal(inicio, fim);
     }
 
     private List<TarefaExternaDto> tarefasDoProjeto(List<TarefaExternaDto> tarefas, Integer projetoId) {
@@ -459,6 +493,9 @@ public class FinanceiroServiceImpl implements FinanceiroService {
 
     private <T> List<T> listaSegura(List<T> lista) {
         return lista == null ? List.of() : new ArrayList<>(lista);
+    }
+
+    private record PeriodoMensal(Instant inicio, Instant fim) {
     }
 
     private record DadosFinanceiros(

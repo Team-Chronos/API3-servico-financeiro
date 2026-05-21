@@ -29,39 +29,49 @@ public class FinanceiroController {
 
     @GetMapping("/projetos")
     public ResponseEntity<List<ProjetoFinanceiroResponse>> listarProjetosFinanceiro(
-            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestParam(required = false) Integer ano,
+            @RequestParam(required = false) Integer mes
     ) {
-        return ResponseEntity.ok(financeiroService.listarProjetosFinanceiro(authorization));
+        return ResponseEntity.ok(financeiroService.listarProjetosFinanceiro(authorization, ano, mes));
     }
 
     @GetMapping("/projetos/{projetoId}/detalhes")
     public ResponseEntity<ProjetoDetalheResponse> detalharProjeto(
             @PathVariable Integer projetoId,
-            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestParam(required = false) Integer ano,
+            @RequestParam(required = false) Integer mes
     ) {
-        return ResponseEntity.ok(financeiroService.detalharProjeto(projetoId, authorization));
+        return ResponseEntity.ok(financeiroService.detalharProjeto(projetoId, authorization, ano, mes));
     }
 
     @GetMapping("/profissionais")
     public ResponseEntity<List<ProfissionalGanhosResponse>> listarTodosProfissionais(
-            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestParam(required = false) Integer ano,
+            @RequestParam(required = false) Integer mes
     ) {
-        return ResponseEntity.ok(financeiroService.listarTodosProfissionais(authorization));
+        return ResponseEntity.ok(financeiroService.listarTodosProfissionais(authorization, ano, mes));
     }
 
     @GetMapping("/profissionais/{usuarioId}")
     public ResponseEntity<ProfissionalGanhosResponse> detalharGanhosProfissional(
             @PathVariable Integer usuarioId,
             @RequestParam(required = false, defaultValue = "0") BigDecimal bonus,
-            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestParam(required = false) Integer ano,
+            @RequestParam(required = false) Integer mes
     ) {
-        return ResponseEntity.ok(financeiroService.detalharGanhosProfissional(usuarioId, bonus, authorization));
+        return ResponseEntity.ok(financeiroService.detalharGanhosProfissional(usuarioId, bonus, authorization, ano, mes));
     }
 
     @GetMapping("/dashboard")
     public ResponseEntity<DashboardFinanceiroResponse> obterDadosDashboard(
-            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestParam(required = false) Integer ano,
+            @RequestParam(required = false) Integer mes
     ) {
-        return ResponseEntity.ok(financeiroService.obterDadosDashboard(authorization));
+        return ResponseEntity.ok(financeiroService.obterDadosDashboard(authorization, ano, mes));
     }
 }
