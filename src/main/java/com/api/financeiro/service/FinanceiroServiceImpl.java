@@ -189,7 +189,12 @@ public class FinanceiroServiceImpl implements FinanceiroService {
                         .sum()
         );
 
-        BigDecimal custoTotal = dados.tarefas().stream()
+        List<TarefaExternaDto> tarefasComHoras = dados.tarefas().stream()
+                .filter(tarefa -> tarefa.id() != null)
+                .filter(tarefa -> dados.registrosPorTarefaId().containsKey(tarefa.id()))
+                .toList();
+
+        BigDecimal custoTotal = tarefasComHoras.stream()
                 .map(tarefa -> {
                     ProjetoExternoDto projeto = dados.projetosPorId().get(toInteger(tarefa.projetoId()));
                     if (projeto == null) {
@@ -202,17 +207,17 @@ public class FinanceiroServiceImpl implements FinanceiroService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
 
-        Long totalProjetos = dados.tarefas().stream()
+        Long totalProjetos = tarefasComHoras.stream()
                 .map(TarefaExternaDto::projetoId)
                 .filter(Objects::nonNull)
                 .distinct()
                 .count();
 
-        Long tarefasConcluidas = dados.tarefas().stream()
+        Long tarefasConcluidas = tarefasComHoras.stream()
                 .filter(this::tarefaConcluida)
                 .count();
 
-        Map<Long, List<TarefaExternaDto>> tarefasPorProjeto = dados.tarefas().stream()
+        Map<Long, List<TarefaExternaDto>> tarefasPorProjeto = tarefasComHoras.stream()
                 .filter(tarefa -> tarefa.projetoId() != null)
                 .collect(Collectors.groupingBy(TarefaExternaDto::projetoId));
 
@@ -221,7 +226,7 @@ public class FinanceiroServiceImpl implements FinanceiroService {
                 .filter(lista -> lista.stream().allMatch(this::tarefaConcluida))
                 .count();
 
-        Long totalDesenvolvedores = dados.tarefas().stream()
+        Long totalDesenvolvedores = tarefasComHoras.stream()
                 .map(TarefaExternaDto::responsavelId)
                 .filter(Objects::nonNull)
                 .map(this::toInteger)
@@ -244,11 +249,12 @@ public class FinanceiroServiceImpl implements FinanceiroService {
             List<TarefaExternaDto> tarefasProjeto,
             Map<Long, List<RegistroHoraExternoDto>> registrosPorTarefaId
     ) {
-        if (tarefasProjeto.isEmpty()) {
+        BigDecimal totalHoras = horasDasTarefas(tarefasProjeto, registrosPorTarefaId);
+
+        if (totalHoras.compareTo(BigDecimal.ZERO) == 0) {
             return null;
         }
 
-        BigDecimal totalHoras = horasDasTarefas(tarefasProjeto, registrosPorTarefaId);
         BigDecimal custoTotal = totalHoras.multiply(valorHoraProjeto(projeto)).setScale(2, RoundingMode.HALF_UP);
 
         return new ProjetoFinanceiroResponse(
@@ -301,6 +307,11 @@ public class FinanceiroServiceImpl implements FinanceiroService {
                 .map(entry -> {
                     ProjetoExternoDto projeto = dados.projetosPorId().get(entry.getKey());
                     BigDecimal horas = horasDasTarefas(entry.getValue(), dados.registrosPorTarefaId());
+
+                    if (horas.compareTo(BigDecimal.ZERO) == 0) {
+                        return null;
+                    }
+
                     BigDecimal valorHoraProjeto = valorHoraProjeto(projeto);
                     BigDecimal valorBase = horas.multiply(valorHoraProjeto).setScale(2, RoundingMode.HALF_UP);
 
@@ -312,6 +323,7 @@ public class FinanceiroServiceImpl implements FinanceiroService {
                             valorBase
                     );
                 })
+                .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(ProjetoProfissionalResponse::nomeProjeto, Comparator.nullsLast(String::compareToIgnoreCase)))
                 .toList();
     }
